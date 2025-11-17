@@ -113,3 +113,51 @@ func HGetAll(ctx context.Context, client *redis.Client, records []model.SessionR
 	elapsed := time.Since(start)
 	return benchHeader("HGETALL_HASH", len(records), elapsed), nil
 }
+
+func SetJSONPipeline(ctx context.Context, client *redis.Client, records []model.SessionRecord) (Result, error) {
+	start := time.Now()
+
+	pipe := client.Pipeline()
+
+	for _, rec := range records {
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return Result{}, fmt.Errorf("marshal failed for id=%s: %w", rec.ID, err)
+		}
+		key := fmt.Sprintf("session:set:%s", rec.ID)
+
+		pipe.Set(ctx, key, data, 0)
+	}
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline SET exec failed: %w", err)
+	}
+
+	elapsed := time.Since(start)
+	return benchHeader("SET_JSON_PIPELINE", len(records), elapsed), nil
+}
+
+func HSetPipeline(ctx context.Context, client *redis.Client, records []model.SessionRecord) (Result, error) {
+	start := time.Now()
+
+	pipe := client.Pipeline()
+
+	for _, rec := range records {
+		hash, err := rec.ToHash()
+		if err != nil {
+			return Result{}, fmt.Errorf("ToHash failed for id=%s: %w", rec.ID, err)
+		}
+
+		key := fmt.Sprintf("session:hash:%s", rec.ID)
+
+		pipe.HSet(ctx, key, hash)
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("pipeline HSET exec failed: %w", err)
+	}
+
+	elapsed := time.Since(start)
+	return benchHeader("HSET_HASH_PIPELINE", len(records), elapsed), nil
+}

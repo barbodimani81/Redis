@@ -95,4 +95,21 @@ func main() {
 		log.Fatalf("HGETALL_HASH 10000 failed: %v", err)
 	}
 	printResult(hget10000)
+
+	store.Flush(ctx, client)
+	fmt.Println("Running SET_JSON_PIPELINE 10000...")
+	setPipe10000, err := bench.SetJSONPipeline(ctx, client, records10000)
+	if err != nil {
+		log.Fatalf("SET_JSON_PIPELINE 10000 failed: %v", err)
+	}
+	printResult(setPipe10000)
+
+	// HSET hash pipeline
+	store.Flush(ctx, client)
+	fmt.Println("Running HSET_HASH_PIPELINE 10000...")
+	hsetPipe10000, err := bench.HSetPipeline(ctx, client, records10000)
+	if err != nil {
+		log.Fatalf("HSET_HASH_PIPELINE 10000 failed: %v", err)
+	}
+	printResult(hsetPipe10000)
 }
