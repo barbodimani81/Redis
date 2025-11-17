@@ -71,3 +71,17 @@ Generated 1000 and 10000 records
 * Both approaches are fast enough for workloads at this scale, with sub-50µs average operation time.
 
 This benchmark provides a baseline for understanding how Redis behaves when handling medium-sized JSON-like objects using different storage patterns.
+
+## Sample Commands
+
+`go run ./cmd/redis-bench -pattern=set -count=10000 -pipeline=false -reads=true`
+
+`go run ./cmd/redis-bench -pattern=hash -count=10000`
+
+`go run ./cmd/redis-bench -pattern=set -count=10000 -pipeline=false`
+
+`go run ./cmd/redis-bench -pattern=set -count=10000 -pipeline=true`
+
+`go run ./cmd/redis-bench -pattern=both -count=10000 -pipeline=false`
+
+`go run ./cmd/redis-bench -pattern=both -count=10000 -pipeline=true`

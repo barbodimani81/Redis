@@ -6,6 +6,7 @@ import (
 	"final/bench"
 	"final/model"
 	"final/store"
+	"flag"
 	"fmt"
 	"log"
 )
@@ -16,100 +17,89 @@ func printResult(r bench.Result) {
 }
 
 func main() {
+	// ---- Flags ----
+	count := flag.Int("count", 10000, "number of records to benchmark (e.g. 1000 or 10000)")
+	pattern := flag.String("pattern", "both", "which pattern to run: set | hash | both")
+	pipeline := flag.Bool("pipeline", false, "use pipeline for writes")
+	withReads := flag.Bool("reads", true, "also benchmark reads (GET / HGETALL)")
+	flag.Parse()
+
 	ctx := context.Background()
 
 	client := store.NewClient()
 	store.Ping(ctx, client)
 
-	sample := model.GenerateSessionRecords(3)
-	sampleJSON, err := json.Marshal(sample[0])
+	// Generate data
+	records := model.GenerateSessionRecords(*count)
+	fmt.Printf("Generated %d records\n", len(records))
+
+	// Show sample JSON size once
+	sampleJSON, err := json.Marshal(records[0])
 	if err != nil {
 		log.Fatalf("sample json marshal failed: %v", err)
 	}
-	fmt.Printf("sample json size: %d bytes\n", len(sampleJSON))
+	fmt.Printf("Sample JSON size: %d bytes\n", len(sampleJSON))
 
-	records1000 := model.GenerateSessionRecords(1000)
-	records10000 := model.GenerateSessionRecords(10000)
-	fmt.Printf("Generated %d and %d records\n", len(records1000), len(records10000))
+	runSet := *pattern == "set" || *pattern == "both"
+	runHash := *pattern == "hash" || *pattern == "both"
 
-	// SET / GET – 1000
-	store.Flush(ctx, client)
-	fmt.Println("Running SET_JSON 1000...")
-	set1000, err := bench.SetJSON(ctx, client, records1000)
-	if err != nil {
-		log.Fatalf("SET_JSON 1000 failed: %v", err)
+	// ---- SET / GET path ----
+	if runSet {
+		store.Flush(ctx, client)
+
+		if *pipeline {
+			fmt.Println("Running SET_JSON_PIPELINE...")
+			res, err := bench.SetJSONPipeline(ctx, client, records)
+			if err != nil {
+				log.Fatalf("SET_JSON_PIPELINE failed: %v", err)
+			}
+			printResult(res)
+		} else {
+			fmt.Println("Running SET_JSON...")
+			res, err := bench.SetJSON(ctx, client, records)
+			if err != nil {
+				log.Fatalf("SET_JSON failed: %v", err)
+			}
+			printResult(res)
+		}
+
+		if *withReads {
+			fmt.Println("Running GET_JSON...")
+			res, err := bench.GetJSON(ctx, client, records)
+			if err != nil {
+				log.Fatalf("GET_JSON failed: %v", err)
+			}
+			printResult(res)
+		}
 	}
-	printResult(set1000)
 
-	fmt.Println("Running GET_JSON 1000...")
-	get1000, err := bench.GetJSON(ctx, client, records1000)
-	if err != nil {
-		log.Fatalf("GET_JSON 1000 failed: %v", err)
-	}
-	printResult(get1000)
+	// ---- HSET / HGETALL path ----
+	if runHash {
+		store.Flush(ctx, client)
 
-	// SET / GET – 10000
-	store.Flush(ctx, client)
-	fmt.Println("Running SET_JSON 10000...")
-	set10000, err := bench.SetJSON(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("SET_JSON 10000 failed: %v", err)
-	}
-	printResult(set10000)
+		if *pipeline {
+			fmt.Println("Running HSET_HASH_PIPELINE...")
+			res, err := bench.HSetPipeline(ctx, client, records)
+			if err != nil {
+				log.Fatalf("HSET_HASH_PIPELINE failed: %v", err)
+			}
+			printResult(res)
+		} else {
+			fmt.Println("Running HSET_HASH...")
+			res, err := bench.HSet(ctx, client, records)
+			if err != nil {
+				log.Fatalf("HSET_HASH failed: %v", err)
+			}
+			printResult(res)
+		}
 
-	fmt.Println("Running GET_JSON 10000...")
-	get10000, err := bench.GetJSON(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("GET_JSON 10000 failed: %v", err)
+		if *withReads {
+			fmt.Println("Running HGETALL_HASH...")
+			res, err := bench.HGetAll(ctx, client, records)
+			if err != nil {
+				log.Fatalf("HGETALL_HASH failed: %v", err)
+			}
+			printResult(res)
+		}
 	}
-	printResult(get10000)
-
-	// HSET / HGETALL – 1000
-	store.Flush(ctx, client)
-	fmt.Println("Running HSET_HASH 1000...")
-	hset1000, err := bench.HSet(ctx, client, records1000)
-	if err != nil {
-		log.Fatalf("HSET_HASH 1000 failed: %v", err)
-	}
-	printResult(hset1000)
-
-	fmt.Println("Running HGETALL_HASH 1000...")
-	hget1000, err := bench.HGetAll(ctx, client, records1000)
-	if err != nil {
-		log.Fatalf("HGETALL_HASH 1000 failed: %v", err)
-	}
-	printResult(hget1000)
-
-	// HSET / HGETALL – 10000
-	store.Flush(ctx, client)
-	fmt.Println("Running HSET_HASH 10000...")
-	hset10000, err := bench.HSet(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("HSET_HASH 10000 failed: %v", err)
-	}
-	printResult(hset10000)
-
-	fmt.Println("Running HGETALL_HASH 10000...")
-	hget10000, err := bench.HGetAll(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("HGETALL_HASH 10000 failed: %v", err)
-	}
-	printResult(hget10000)
-
-	store.Flush(ctx, client)
-	fmt.Println("Running SET_JSON_PIPELINE 10000...")
-	setPipe10000, err := bench.SetJSONPipeline(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("SET_JSON_PIPELINE 10000 failed: %v", err)
-	}
-	printResult(setPipe10000)
-
-	// HSET hash pipeline
-	store.Flush(ctx, client)
-	fmt.Println("Running HSET_HASH_PIPELINE 10000...")
-	hsetPipe10000, err := bench.HSetPipeline(ctx, client, records10000)
-	if err != nil {
-		log.Fatalf("HSET_HASH_PIPELINE 10000 failed: %v", err)
-	}
-	printResult(hsetPipe10000)
 }
