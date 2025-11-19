@@ -239,3 +239,65 @@ func ClearSessions(db *sql.DB) error {
     _, err := db.Exec("TRUNCATE TABLE sessions")
     return err
 }
+
+func InsertBatchMultiRow(ctx context.Context, db *sql.DB, records []model.SessionRecord, size int) (bench.Result, error) {
+	const name = "PG_INSERT_BATCH_MULTIROW"
+	n := len(records)
+
+	if n == 0 {
+		return bench.Result{}, nil
+	}
+	if size <= 0 {
+		size = 1
+	}
+
+	start := time.Now()
+	for i := 0; i < n; i += size {
+		end := i + size
+		if end > n {
+			end = n
+		}
+		chunk := records[i:end]
+
+		query, args, err := builMultiRowInsert(chunk)
+		if err != nil {
+			return bench.Result{}, err
+		}
+
+		if _, err := db.ExecContext(ctx, query, args...); err != nil {
+			return bench.Result{}, fmt.Errorf("failed to execute: %w", err)
+		}
+	}
+
+	total := time.Since(start)
+	return NewPgResult(name, n, total), nil
+}
+
+func builMultiRowInsert(chunk []model.SessionRecord) (string, []any, error) {
+	if len(chunk) == 0 {
+		return "", nil, fmt.Errorf("chunk empty")
+	}
+
+	query := "INSERT INTO sessions (id, session) VALUES "
+
+	args := make([]any, 0, len(chunk)/2)
+
+	for i, rec := range chunk {
+		p1 := 2*i + 1
+		p2 := 2*i + 2
+
+		if i > 0 {
+			query += ", "
+		}
+		query += fmt.Sprintf("($%d, $%d)", p1, p2)
+
+		data, err := json.Marshal(rec)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed in marshal")
+		}
+
+		args = append(args, rec.ID, data)
+	}
+	
+	return query, args, nil
+}

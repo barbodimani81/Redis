@@ -16,6 +16,7 @@ func main() {
 	maxOpenConns := flag.Int("max-open-conns", 4, "max open connections in Postgres pool")
 	maxIdleConns := flag.Int("max-idle-conns", 4, "max idle connections in Postgres pool")
 	workers := flag.Int("workers", 4, "number of concurrent workers (for concurrent modes)")
+	batchSize := flag.Int("batch-size", 100, "batch size for batch insert mode")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -93,6 +94,22 @@ func main() {
     fmt.Printf("[%s] workers=%d maxOpenConns=%d count=%d total=%v avg/op=%v\n",
         r.Name, *workers, *maxOpenConns, r.Count, r.Total, r.AvgPerOp)
 
+
+	case "insert_batch":
+		// Optional but recommended: clear table before each run
+		if err := store.ClearSessions(db); err != nil {
+			log.Fatalf("ClearSessions: %v", err)
+		}
+	
+		r, err := store.InsertBatchMultiRow(ctx, db, records, *batchSize)
+		if err != nil {
+			log.Fatalf("InsertBatchMultiRow: %v", err)
+		}
+	
+		fmt.Printf("[%s] batchSize=%d count=%d total=%v avg/op=%v\n",
+			r.Name, *batchSize, r.Count, r.Total, r.AvgPerOp)
+
+			
 	default:
 		log.Fatalf("unknown mode: %s", *mode)
 	}
