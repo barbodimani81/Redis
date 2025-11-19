@@ -301,3 +301,88 @@ func builMultiRowInsert(chunk []model.SessionRecord) (string, []any, error) {
 	
 	return query, args, nil
 }
+
+func InsertBatchMultiRowConcurrent(ctx context.Context, db *sql.DB, records []model.SessionRecord, workers int, batchSize int) (bench.Result, error) {
+	const name = "PG_INSERT_BATCH_MULTIROW_CONCURRENT"
+	if workers <= 0 {
+		workers = 1
+	}
+	if batchSize <= 0 {
+		batchSize = 1
+	}
+
+	n := len(records)
+	if n == 0 {
+		return NewPgResult(name, 0, 0), nil
+	}
+
+	chunk := (n + workers - 1) / workers
+
+	var wg sync.WaitGroup
+	var firstErr error
+	var mu sync.Mutex
+
+	setError := func(err error) {
+		if err == nil {
+			return
+		}
+		mu.Lock()
+		if firstErr == nil {
+			firstErr = err
+		}
+		mu.Unlock()
+	}
+
+	start := time.Now()
+
+	for w := 0; w < workers; w++ {
+		from := w * chunk
+		if from >= n {
+			break
+		}
+		to := from + chunk
+		if to > n {
+			to = n
+		}
+		subset := records[from:to]
+
+		wg.Add(1)
+		go func (sub []model.SessionRecord) {
+			defer wg.Done()
+			for i := 0; i < len(sub); i += batchSize {
+				mu.Lock()
+				if firstErr != nil {
+					mu.Unlock()
+					return 
+				}
+				mu.Unlock()
+
+				end := i + batchSize
+				if end > len(sub) {
+					end = len(sub)
+				}
+				chunk := sub[i:end]
+
+				query, arg, err := builMultiRowInsert(chunk)
+				if err != nil {
+					setError(err)
+					return 
+				}
+
+				if _, err := db.ExecContext(ctx, query, arg...); err != nil {
+					setError(fmt.Errorf("error in batch exec: %w", err))
+					return 
+				}
+			}
+		} (subset)
+	}
+
+	wg.Wait()
+
+	if firstErr != nil {
+		return bench.Result{}, nil
+	}
+
+	total := time.Since(start)
+	return NewPgResult(name, n, total), nil
+}
