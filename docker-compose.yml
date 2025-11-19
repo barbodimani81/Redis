@@ -8,3 +8,14 @@ services:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: appdb
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
