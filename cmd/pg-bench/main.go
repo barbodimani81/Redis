@@ -12,7 +12,7 @@ import (
 
 func main() {
 	count := flag.Int("count", 1000, "number of records to insert/select")
-	mode := flag.String("mode", "insert", "mode: insert | get | both")
+	mode := flag.String("mode", "insert", "mode: insert | get | both | insert_concurrent | insert_batch | insert_batch_concurrent")
 	maxOpenConns := flag.Int("max-open-conns", 4, "max open connections in Postgres pool")
 	maxIdleConns := flag.Int("max-idle-conns", 4, "max idle connections in Postgres pool")
 	workers := flag.Int("workers", 4, "number of concurrent workers (for concurrent modes)")
@@ -109,6 +109,20 @@ func main() {
 		fmt.Printf("[%s] batchSize=%d count=%d total=%v avg/op=%v\n",
 			r.Name, *batchSize, r.Count, r.Total, r.AvgPerOp)
 
+		case "insert_batch_concurrent":
+			// As always, clear table before measuring inserts
+			if err := store.ClearSessions(db); err != nil {
+				log.Fatalf("ClearSessions: %v", err)
+			}
+		
+			r, err := store.InsertBatchMultiRowConcurrent(ctx, db, records, *workers, *batchSize)
+			if err != nil {
+				log.Fatalf("InsertBatchMultiRowConcurrent: %v", err)
+			}
+		
+			fmt.Printf("[%s] workers=%d maxOpenConns=%d batchSize=%d count=%d total=%v avg/op=%v\n",
+				r.Name, *workers, *maxOpenConns, *batchSize,
+				r.Count, r.Total, r.AvgPerOp)		
 			
 	default:
 		log.Fatalf("unknown mode: %s", *mode)

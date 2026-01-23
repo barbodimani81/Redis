@@ -85,3 +85,114 @@ This benchmark provides a baseline for understanding how Redis behaves when hand
 `go run ./cmd/redis-bench -pattern=both -count=10000 -pipeline=false`
 
 `go run ./cmd/redis-bench -pattern=both -count=10000 -pipeline=true`
+
+# Postgres vs Redis Benchmark (Connection Pool, Concurrency, Batching)
+
+This project benchmarks high‑volume insert workloads across Postgres and Redis using the same JSON data model. It demonstrates how connection pools, batching, and concurrency impact throughput and per‑operation latency.
+
+## Overview
+
+The goal of this benchmark suite is to measure:
+
+* Effect of Postgres connection pooling
+* Concurrent inserts with different worker counts
+* Single‑row vs multi‑row batch inserts
+* Combined batching + concurrency performance
+* Comparison against Redis SET/GET operations
+
+All tests use synthetic `SessionRecord` objects (~1–2 KB each) matching the existing Redis benchmark.
+
+## Key Findings
+
+### 1. Connection Pool Behavior
+
+* With 4 workers:
+
+  * `MaxOpenConns=1` forces serialization → ~2.0 s for 10k inserts
+  * `MaxOpenConns=4` enables full parallelism → ~0.7 s
+  * `MaxOpenConns>4` gives no additional benefit
+
+### 2. Batching Results (Single Goroutine)
+
+* Batch size 1 → ~2.1 s
+* Batch size 50 → ~0.63 s
+* Batch size 200 → ~0.29 s
+
+Larger batches dramatically reduce round trips and parse/plan overhead.
+
+### 3. Concurrent Batching (4 Workers)
+
+* Batch 50 → ~0.26 s
+* Batch 100 → ~0.17 s
+* Batch 200 → ~0.118 s
+
+This approach gives the best overall performance.
+
+### 4. Redis Comparison
+
+* Redis SET JSON (10k ops): ~291 ms total (~29 µs/op)
+* Postgres concurrent batch (batch=200): ~118 ms total (~11.8 µs/op)
+
+With aggressive batching + parallelism, Postgres matches or beats Redis for pure write throughput in this benchmark.
+
+## Benchmarks Summary
+
+| Mode             | Workers | Batch | Pool | Total Time | Avg/op  |
+| ---------------- | ------- | ----- | ---- | ---------- | ------- |
+| Single inserts   | 4       | N/A   | 4    | ~719 ms    | 72 µs   |
+| Batch insert     | 1       | 200   | 4    | ~295 ms    | 30 µs   |
+| Concurrent batch | 4       | 200   | 4    | ~118 ms    | 11.8 µs |
+
+## How To Run
+
+### Redis Benchmarks
+
+Bring up Redis:
+
+```
+docker-compose up -d redis
+```
+
+Run Redis tests (example):
+
+```
+go run ./cmd/redis-bench -mode=set -count=10000
+```
+
+### Postgres Benchmarks
+
+Start Postgres:
+
+```
+docker-compose up -d postgres
+```
+
+Run insert concurrency test:
+
+```
+go run ./cmd/pg-bench \
+  -mode=insert_concurrent \
+  -count=10000 \
+  -workers=4 \
+  -max-open-conns=4
+```
+
+Run batch insert:
+
+```
+go run ./cmd/pg-bench \
+  -mode=insert_batch \
+  -count=10000 \
+  -batch-size=200
+```
+
+Run concurrent batch insert:
+
+```
+go run ./cmd/pg-bench \
+  -mode=insert_batch_concurrent \
+  -count=10000 \
+  -workers=4 \
+  -batch-size=200 \
+  -max-open-conns=4
+```
